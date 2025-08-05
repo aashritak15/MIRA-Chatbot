@@ -14,6 +14,18 @@ const micButton = document.getElementById('mic-button') as HTMLButtonElement;
 const slowModeToggle = document.getElementById(
   'slow-mode',
 ) as HTMLInputElement;
+const remindersButton = document.getElementById('reminders-button') as HTMLButtonElement;
+const remindersContainer = document.getElementById('reminders-container') as HTMLDivElement;
+const remindersList = document.getElementById('reminders-list') as HTMLUListElement;
+const closeRemindersButton = document.getElementById('close-reminders-button') as HTMLButtonElement;
+
+
+// --- Type Definitions ---
+type Reminder = {
+  id: number;
+  text: string;
+};
+
 
 // --- Speech Recognition & Synthesis Setup ---
 const SpeechRecognitionAPI =
@@ -59,6 +71,7 @@ const chat: Chat = ai.chats.create({
 let isListening = false;
 let isSpeaking = false;
 let loadingMessageElement: HTMLDivElement | null = null;
+let reminders: Reminder[] = [];
 
 // --- Core Functions ---
 
@@ -138,6 +151,17 @@ async function sendMessageToMira(message: string) {
 
   appendMessage(message, 'user');
   chatInput.value = '';
+
+  if (message.toLowerCase().startsWith('remind me to')) {
+    const reminderText = message.substring('remind me to'.length).trim();
+    addReminder(reminderText);
+    const confirmation = `I've added a reminder for you: "${reminderText}"`;
+    appendMessage(confirmation, 'mira');
+    speak(confirmation);
+    return;
+  }
+
+
   showLoadingIndicator();
 
   try {
@@ -156,12 +180,75 @@ async function sendMessageToMira(message: string) {
   }
 }
 
+
+// --- Reminder Functions ---
+function loadReminders() {
+  const storedReminders = localStorage.getItem('reminders');
+  if (storedReminders) {
+    reminders = JSON.parse(storedReminders);
+    renderReminders();
+  }
+}
+
+function saveReminders() {
+  localStorage.setItem('reminders', JSON.stringify(reminders));
+}
+
+function renderReminders() {
+  remindersList.innerHTML = '';
+  if (reminders.length === 0) {
+    remindersList.innerHTML = '<p>You have no reminders.</p>';
+    return;
+  }
+  reminders.forEach(reminder => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <span>${reminder.text}</span>
+      <button class="delete-reminder-btn" data-id="${reminder.id}">&times;</button>
+    `;
+    remindersList.appendChild(li);
+  });
+}
+
+function addReminder(text: string) {
+  const newReminder: Reminder = {
+    id: Date.now(),
+    text,
+  };
+  reminders.push(newReminder);
+  saveReminders();
+  renderReminders();
+}
+
+function deleteReminder(id: number) {
+  reminders = reminders.filter(reminder => reminder.id !== id);
+  saveReminders();
+  renderReminders();
+}
+
 // --- Event Listeners ---
 
 chatForm.addEventListener('submit', (e) => {
   e.preventDefault();
   sendMessageToMira(chatInput.value);
 });
+
+remindersButton.addEventListener('click', () => {
+  remindersContainer.classList.remove('hidden');
+});
+
+closeRemindersButton.addEventListener('click', () => {
+  remindersContainer.classList.add('hidden');
+});
+
+remindersList.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement;
+  if (target.classList.contains('delete-reminder-btn')) {
+    const id = Number(target.getAttribute('data-id'));
+    deleteReminder(id);
+  }
+});
+
 
 if (recognition) {
   micButton.addEventListener('click', () => {
@@ -193,34 +280,7 @@ if (recognition) {
 
   recognition.onerror = (event) => {
     console.error('Speech recognition error:', event.error);
-
-    // Don't show an error if recognition was manually stopped by the user.
-    if (event.error === 'aborted') {
-      return;
-    }
-
-    let errorMessage: string;
-
-    switch (event.error) {
-      case 'network':
-        errorMessage =
-          "I'm having trouble connecting to the voice service. Could you please check your internet connection and try again?";
-        break;
-      case 'no-speech':
-        errorMessage =
-          "I didn't seem to hear anything. Please try speaking again.";
-        break;
-      case 'not-allowed':
-      case 'service-not-allowed':
-        errorMessage =
-          'It seems I do not have permission to use your microphone. You may need to allow it in your browser settings.';
-        break;
-      default:
-        errorMessage =
-          "I'm sorry, I couldn't quite understand that. Please try again.";
-        break;
-    }
-
+    const errorMessage = "I'm sorry, I couldn't hear that. Please try again.";
     appendMessage(errorMessage, 'mira');
     speak(errorMessage);
   };
@@ -228,6 +288,7 @@ if (recognition) {
 
 // --- Initial Greeting ---
 window.addEventListener('load', () => {
+  loadReminders();
   // A small delay ensures voices are loaded, especially on first load.
   setTimeout(() => {
     const welcomeMessage = "Hello, I'm MIRA. How can I help you today?";
